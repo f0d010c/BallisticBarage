@@ -265,7 +265,7 @@ function resizeCanvas() {
   Layout.blockH   = cellH - CFG.BLOCK_PAD * 2;
   Layout.gridOffX = pad;
   Layout.gridOffY = Math.floor(H * 0.06);
-  Layout.launchZoneY = H - Math.floor(H * 0.08);
+  Layout.launchZoneY = H - Math.floor(H * 0.02);
 
   // Update launch position to stay centred after resize
   if (State.phase !== 'start') {
