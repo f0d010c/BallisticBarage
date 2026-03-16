@@ -1009,7 +1009,7 @@ function drawAim(c) {
     if (px - CFG.BALL_RADIUS < margin) { px = margin + CFG.BALL_RADIUS; pvx = Math.abs(pvx); }
     if (px + CFG.BALL_RADIUS > rightEdge) { px = rightEdge - CFG.BALL_RADIUS; pvx = -Math.abs(pvx); }
     if (py - CFG.BALL_RADIUS < Layout.gridOffY) { py = Layout.gridOffY + CFG.BALL_RADIUS; pvy = Math.abs(pvy); }
-    if (py + CFG.BALL_RADIUS > Layout.launchZoneY) break;
+    if (pvy > 0 && py + CFG.BALL_RADIUS > Layout.launchZoneY) break;
 
     if (step % dotStep === 0) {
       const alpha = 1 - dotCount / maxDots;
