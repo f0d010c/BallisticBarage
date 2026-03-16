@@ -42,7 +42,7 @@ const CFG = {
   MAX_STEPS:    8,          // physics substeps per frame
 
   // Launch
-  MIN_ANGLE_DEG:  12,       // min angle above horizontal
+  MIN_ANGLE_DEG:  2,        // min angle above horizontal
   LAUNCH_DELAY:   40,       // ms between successive ball launches
 
   // Spawn
