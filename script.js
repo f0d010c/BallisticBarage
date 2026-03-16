@@ -506,11 +506,7 @@ function stepBall(ball, dt) {
       // Damage block once per full step (avoid multi-hit within substeps)
       if (!block._hitThisStep) {
         block._hitThisStep = true;
-        if (block.type === 'stone') {
-          // Stone: indestructible — just bounce with a brief flash
-          block.flashTimer = 0.05;
-          events.push({ type: 'hit', block });
-        } else if (block.type === 'armored') {
+        if (block.type === 'armored') {
           block.flashTimer = 0.12;
           block.armorHits = (block.armorHits || 0) + 1;
           if (block.armorHits >= 2) {
@@ -587,7 +583,7 @@ function spawnRow() {
     // HP
     let hp = baseHp + Math.floor(Math.random() * spread * 2) - spread + 1;
     hp = Math.max(1, hp);
-    if (type === 'stone')   hp = 9999;
+    if (type === 'stone')   hp = Math.ceil(hp * 5); // very tough but breakable
     if (type === 'armored') hp = Math.ceil(hp * 1.5);
     const maxHp = hp;
 
@@ -1075,8 +1071,8 @@ function drawBlocks(c) {
     c.font = `700 ${fontSize}px "Segoe UI", Arial, sans-serif`;
     c.textAlign    = 'center';
     c.textBaseline = 'middle';
-    c.fillStyle    = flash ? '#000' : (isStone ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.92)');
-    c.fillText(isStone ? '∞' : (block.hp > 999 ? '...' : block.hp), tlx + bw / 2, tly + bh / 2);
+    c.fillStyle    = flash ? '#000' : (isStone ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.92)');
+    c.fillText(block.hp > 999 ? '...' : block.hp, tlx + bw / 2, tly + bh / 2);
 
     // Small type badge (bottom-right corner)
     if (!flash) {
