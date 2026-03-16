@@ -613,11 +613,12 @@ let lastTime    = 0;
 let accumulator = 0;
 let rafId       = null;
 let shakeFrames = 0;
+let fastForward = false;
 
 function gameLoop(timestamp) {
   rafId = requestAnimationFrame(gameLoop);
 
-  const rawDt = Math.min((timestamp - lastTime) / 1000, 0.05); // cap at 50ms
+  const rawDt = Math.min((timestamp - lastTime) / 1000, 0.05) * (fastForward ? 5 : 1);
   lastTime = timestamp;
 
   if (State.phase === 'start' || State.phase === 'gameover') {
@@ -739,9 +740,15 @@ function startFiring() {
   State.balls        = [];
   launchElapsed      = 0;
   launchIndex        = 0;
+  document.getElementById('btn-fast').style.display = '';
 }
 
 function endTurn() {
+  fastForward = false;
+  const btn = document.getElementById('btn-fast');
+  btn.style.display = 'none';
+  btn.textContent = '⏩';
+
   // Apply ball gains from pickups
   State.ballCount += State.pendingBallGain;
 
@@ -1152,6 +1159,12 @@ document.getElementById('btn-pause').addEventListener('click', () => {
     State.phase = 'paused';
     showOverlay('pause-screen');
   }
+});
+
+document.getElementById('btn-fast').addEventListener('click', () => {
+  if (State.phase !== 'firing' && State.phase !== 'rolling') return;
+  fastForward = !fastForward;
+  document.getElementById('btn-fast').textContent = fastForward ? '▶▶' : '⏩';
 });
 
 document.getElementById('btn-mute').addEventListener('click', () => {
