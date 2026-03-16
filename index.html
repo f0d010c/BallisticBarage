@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<!--
+  BALLISTIC BARRAGE
+  =================
+  A browser-based arcade game inspired by brick-breaker / ballistic mechanics.
+
+  HOW TO RUN:
+  - Open index.html directly in any modern browser (Chrome, Firefox, Safari, Edge).
+  - Or serve with: python3 -m http.server 8080
+    then visit http://localhost:8080
+
+  FILES:
+  - index.html  → Structure and canvas
+  - styles.css  → Layout, UI, animations
+  - script.js   → All game logic, physics, rendering, audio
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Ballistic Barrage</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Start Screen -->
+  <div id="start-screen" class="overlay active">
+    <div class="overlay-content">
+      <h1 class="game-title">BALLISTIC<br><span class="title-accent">BARRAGE</span></h1>
+      <p class="tagline">Aim. Launch. Obliterate.</p>
+      <div class="instructions">
+        <div class="instruction-item">
+          <span class="icon">🎯</span>
+          <span>Drag to aim, release to fire</span>
+        </div>
+        <div class="instruction-item">
+          <span class="icon">💥</span>
+          <span>Balls bounce and break blocks</span>
+        </div>
+        <div class="instruction-item">
+          <span class="icon">⚡</span>
+          <span>Collect orbs to gain more balls</span>
+        </div>
+        <div class="instruction-item">
+          <span class="icon">⚠️</span>
+          <span>Don't let blocks reach the bottom!</span>
+        </div>
+      </div>
+      <button id="btn-play" class="btn-primary pulse">PLAY</button>
+      <div class="best-score-display" id="start-best-score"></div>
+    </div>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="gameover-screen" class="overlay">
+    <div class="overlay-content">
+      <h2 class="gameover-title">GAME OVER</h2>
+      <div class="score-block">
+        <div class="score-row">
+          <span class="score-label">SCORE</span>
+          <span class="score-value" id="go-score">0</span>
+        </div>
+        <div class="score-row">
+          <span class="score-label">BEST</span>
+          <span class="score-value highlight" id="go-best">0</span>
+        </div>
+        <div class="score-row">
+          <span class="score-label">TURN</span>
+          <span class="score-value" id="go-turn">0</span>
+        </div>
+      </div>
+      <div class="new-best" id="new-best-badge">NEW BEST!</div>
+      <button id="btn-restart" class="btn-primary">PLAY AGAIN</button>
+    </div>
+  </div>
+
+  <!-- Pause Screen -->
+  <div id="pause-screen" class="overlay">
+    <div class="overlay-content">
+      <h2 class="pause-title">PAUSED</h2>
+      <button id="btn-resume" class="btn-primary">RESUME</button>
+      <button id="btn-restart-pause" class="btn-secondary">RESTART</button>
+    </div>
+  </div>
+
+  <!-- Main game container -->
+  <div id="game-wrapper">
+
+    <!-- HUD -->
+    <div id="hud">
+      <div class="hud-left">
+        <div class="hud-item">
+          <span class="hud-label">SCORE</span>
+          <span class="hud-value" id="hud-score">0</span>
+        </div>
+        <div class="hud-item">
+          <span class="hud-label">BEST</span>
+          <span class="hud-value" id="hud-best">0</span>
+        </div>
+      </div>
+      <div class="hud-center">
+        <div class="hud-item">
+          <span class="hud-label">TURN</span>
+          <span class="hud-value" id="hud-turn">1</span>
+        </div>
+      </div>
+      <div class="hud-right">
+        <div class="hud-item">
+          <span class="hud-label">BALLS</span>
+          <span class="hud-value" id="hud-balls">1</span>
+        </div>
+        <button id="btn-mute" class="btn-icon" title="Toggle sound">🔊</button>
+        <button id="btn-pause" class="btn-icon" title="Pause">⏸</button>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
