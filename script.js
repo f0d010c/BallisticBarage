@@ -539,15 +539,17 @@ function stepBall(ball, dt) {
     }
 
     if (hitType === 'wall') {
-      if (hitNx !== 0) ball.vx = hitNx > 0 ? -Math.abs(ball.vx) : Math.abs(ball.vx);
-      if (hitNy !== 0) ball.vy = hitNy > 0 ? -Math.abs(ball.vy) : Math.abs(ball.vy);
+      // v -= 2(v·n)n  — correct reflection for any surface normal
+      const dot = ball.vx * hitNx + ball.vy * hitNy;
+      ball.vx -= 2 * dot * hitNx;
+      ball.vy -= 2 * dot * hitNy;
       events.push('wall');
     }
 
     if (hitType === 'block') {
-      // Reflect on the hit face normal
-      if (hitNx !== 0) ball.vx = hitNx > 0 ? -Math.abs(ball.vx) : Math.abs(ball.vx);
-      if (hitNy !== 0) ball.vy = hitNy > 0 ? -Math.abs(ball.vy) : Math.abs(ball.vy);
+      const dot = ball.vx * hitNx + ball.vy * hitNy;
+      ball.vx -= 2 * dot * hitNx;
+      ball.vy -= 2 * dot * hitNy;
 
       hitBlock.hp--;
       hitBlock.flashTimer = 0.12;
