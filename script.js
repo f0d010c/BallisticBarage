@@ -441,8 +441,9 @@ function stepBall(ball, dt) {
       events.push('wall');
     }
 
-    // ── Bottom — ball lands ──
-    if (ball.y + r >= botY) {
+    // ── Bottom — ball lands (only when moving downward to prevent
+    //    immediate landing since ball starts exactly at launchZoneY) ──
+    if (ball.vy > 0 && ball.y + r >= botY) {
       ball.x     = Math.max(leftX + r, Math.min(rightX - r, ball.x));
       ball.y     = botY - r;
       ball.landed = true;
