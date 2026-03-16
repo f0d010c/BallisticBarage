@@ -51,6 +51,17 @@ const CFG = {
   MIN_HEALTH:         1,
   HEALTH_PER_TURN:    0.55, // avg health growth per turn
 
+  // Special blocks (enabled from these turns onward)
+  ARMORED_MIN_TURN:    2,
+  EXPLOSIVE_MIN_TURN:  3,
+  STONE_MIN_TURN:      5,
+  ARMORED_CHANCE:      0.16,
+  EXPLOSIVE_CHANCE:    0.09,
+  STONE_CHANCE:        0.05,
+
+  // Combo
+  COMBO_WINDOW:     1.5,    // seconds between breaks to maintain combo
+
   // Juice
   SHAKE_THRESHOLD:  3,      // min simultaneous hits to trigger shake
   PARTICLE_COUNT:   12,
@@ -76,12 +87,15 @@ const COLORS = {
     '#e040fb', // tier 8+
   ],
   PARTICLE:    ['#00e5ff','#ff3d71','#ffd700','#a8ff78','#ff9800'],
-  WALL_LINE:   'rgba(0,229,255,0.12)',
-  AIM_LINE:    'rgba(0,229,255,0.55)',
-  AIM_DOT:     'rgba(0,229,255,0.25)',
-  GHOST_BALL:  'rgba(0,229,255,0.2)',
-  LAUNCH_ZONE: 'rgba(0,229,255,0.06)',
-  DANGER_LINE: 'rgba(255,61,113,0.4)',
+  WALL_LINE:      'rgba(0,229,255,0.12)',
+  AIM_LINE:       'rgba(0,229,255,0.55)',
+  AIM_DOT:        'rgba(0,229,255,0.25)',
+  GHOST_BALL:     'rgba(0,229,255,0.2)',
+  LAUNCH_ZONE:    'rgba(0,229,255,0.06)',
+  DANGER_LINE:    'rgba(255,61,113,0.4)',
+  STONE:          '#4a4a60',
+  ARMORED_BORDER: '#ffd700',
+  EXPLOSIVE_GLOW: '#ff7800',
 };
 
 // ─────────────────────────────────────────────
@@ -142,6 +156,9 @@ const Audio = (() => {
     blockBreak()  { noise(0.18, 0.2); tone(80, 'sawtooth', 0.2, 0.15, 0.005, 0.18); },
     pickup()      { tone(880, 'sine', 0.15, 0.2); tone(1100, 'sine', 0.12, 0.15, 0.01); },
     gameOver()    { tone(110, 'sawtooth', 0.6, 0.25, 0.01, 0.5); tone(80, 'square', 0.8, 0.2, 0.05, 0.7); },
+    armorHit()    { tone(620, 'square',   0.07, 0.12, 0.003, 0.06); },
+    explosion()   { noise(0.25, 0.28); tone(55, 'sawtooth', 0.28, 0.22, 0.005, 0.25); },
+    combo(n)      { const f = 440 + Math.min(n - 2, 6) * 100; tone(f, 'sine', 0.15, 0.3, 0.005, 0.1); tone(f * 1.5, 'triangle', 0.08, 0.2, 0.01); },
     get muted()   { return muted; },
     toggle()      {
       muted = !muted;
@@ -190,6 +207,11 @@ const State = {
   ballsLanded: 0,
   ballsFired:  0,
 
+  // Combo
+  combo:       0,
+  comboTimer:  0,
+  comboPopups: [],
+
   reset() {
     this.phase          = 'aiming';
     this.score          = 0;
@@ -203,6 +225,9 @@ const State = {
     this.ballsLanded    = 0;
     this.ballsFired     = 0;
     this.ballsToLaunch  = 0;
+    this.combo          = 0;
+    this.comboTimer     = 0;
+    this.comboPopups    = [];
   },
 
   saveBest() {
@@ -481,12 +506,26 @@ function stepBall(ball, dt) {
       // Damage block once per full step (avoid multi-hit within substeps)
       if (!block._hitThisStep) {
         block._hitThisStep = true;
-        block.hp--;
-        block.flashTimer = 0.12;
-        events.push({ type: 'hit', block });
-        if (block.hp <= 0) {
-          events.push({ type: 'break', block });
-          State.score += block.maxHp;
+        if (block.type === 'stone') {
+          // Stone: indestructible — just bounce with a brief flash
+          block.flashTimer = 0.05;
+          events.push({ type: 'hit', block });
+        } else if (block.type === 'armored') {
+          block.flashTimer = 0.12;
+          block.armorHits = (block.armorHits || 0) + 1;
+          if (block.armorHits >= 2) {
+            block.armorHits = 0;
+            block.hp--;
+            events.push({ type: 'hit', block });
+            if (block.hp <= 0) events.push({ type: 'break', block });
+          } else {
+            events.push({ type: 'armorhit', block }); // armor absorbed the hit
+          }
+        } else {
+          block.hp--;
+          block.flashTimer = 0.12;
+          events.push({ type: 'hit', block });
+          if (block.hp <= 0) events.push({ type: 'break', block });
         }
       }
     }
@@ -523,21 +562,43 @@ function spawnRow() {
 
   const gapChance    = Math.max(0.10, CFG.GAP_CHANCE_BASE - turn * 0.005);
   const pickupChance = Math.min(0.25, CFG.PICKUP_CHANCE_BASE + turn * 0.003);
+  const slideStart   = -Layout.cellSize; // animate in from one row above
 
   for (let col = 0; col < CFG.COLS; col++) {
     const r = Math.random();
     if (r < gapChance) continue; // empty cell
     if (r < gapChance + pickupChance) {
-      // Check no block already here
       if (!State.blocks.find(b => b.col === col && b.row === 0)) {
-        State.pickups.push({ col, row: 0, collected: false });
+        State.pickups.push({ col, row: 0, collected: false, slideOffset: slideStart });
       }
       continue;
     }
-    // Block
-    const hp = baseHp + Math.floor(Math.random() * spread * 2) - spread + 1;
-    const finalHp = Math.max(1, hp);
-    State.blocks.push({ col, row: 0, hp: finalHp, maxHp: finalHp, flashTimer: 0 });
+
+    // Determine block type
+    let type = 'normal';
+    const tr = Math.random();
+    const sc = CFG.STONE_CHANCE;
+    const ec = CFG.EXPLOSIVE_CHANCE;
+    const ac = CFG.ARMORED_CHANCE;
+    if      (turn >= CFG.STONE_MIN_TURN    && tr < sc)            type = 'stone';
+    else if (turn >= CFG.EXPLOSIVE_MIN_TURN && tr < sc + ec)      type = 'explosive';
+    else if (turn >= CFG.ARMORED_MIN_TURN   && tr < sc + ec + ac) type = 'armored';
+
+    // HP
+    let hp = baseHp + Math.floor(Math.random() * spread * 2) - spread + 1;
+    hp = Math.max(1, hp);
+    if (type === 'stone')   hp = 9999;
+    if (type === 'armored') hp = Math.ceil(hp * 1.5);
+    const maxHp = hp;
+
+    State.blocks.push({
+      col, row: 0,
+      hp, maxHp,
+      type,
+      flashTimer:  0,
+      armorHits:   0,   // hits absorbed so far on current HP point (armored)
+      slideOffset: slideStart,
+    });
   }
 }
 
@@ -556,6 +617,14 @@ function shiftDown() {
   State.blocks  = State.blocks.filter(b => b.row < CFG.ROWS && b.hp > 0);
   State.pickups = State.pickups.filter(p => !p.collected && p.row < CFG.ROWS);
   return gameOver;
+}
+
+function getAdjacentBlocks(col, row) {
+  return State.blocks.filter(b =>
+    b.hp > 0 &&
+    ((Math.abs(b.col - col) === 1 && b.row === row) ||
+     (Math.abs(b.row - row) === 1 && b.col === col))
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -653,9 +722,29 @@ function update(dt) {
     // shifting is handled as a one-shot, not per-frame
   }
 
-  // Flash timers on blocks
+  // Flash timers + slide-in on blocks
   for (const b of State.blocks) {
     if (b.flashTimer > 0) b.flashTimer -= dt;
+    if (b.slideOffset < 0) b.slideOffset = Math.min(0, b.slideOffset + Layout.cellSize * 4 * dt);
+  }
+
+  // Slide-in on pickups
+  for (const p of State.pickups) {
+    if (p.slideOffset < 0) p.slideOffset = Math.min(0, p.slideOffset + Layout.cellSize * 4 * dt);
+  }
+
+  // Combo timer — reset combo once the window expires
+  if (State.comboTimer > 0) {
+    State.comboTimer -= dt;
+    if (State.comboTimer <= 0) State.combo = 0;
+  }
+
+  // Float combo popups upward
+  for (let i = State.comboPopups.length - 1; i >= 0; i--) {
+    const p = State.comboPopups[i];
+    p.y  -= 35 * dt;
+    p.life -= dt;
+    if (p.life <= 0) State.comboPopups.splice(i, 1);
   }
 }
 
@@ -686,6 +775,7 @@ function updateFiring(dt) {
 // Process active balls
 function updateRolling(dt) {
   let totalHitsThisStep = 0;
+  const explosionQueue = [];
 
   for (const ball of State.balls) {
     if (!ball.alive) continue;
@@ -695,18 +785,32 @@ function updateRolling(dt) {
         Audio.wallBounce();
       } else if (ev === 'land') {
         State.ballsLanded++;
-        if (State.firstLandX === null) {
-          State.firstLandX = ball.x;
-        }
+        if (State.firstLandX === null) State.firstLandX = ball.x;
       } else if (typeof ev === 'object') {
         if (ev.type === 'hit') {
           totalHitsThisStep++;
           Audio.blockHit();
         }
+        if (ev.type === 'armorhit') {
+          totalHitsThisStep++;
+          Audio.armorHit();
+        }
         if (ev.type === 'break') {
+          State.combo = Math.min(State.combo + 1, 10);
+          State.comboTimer = CFG.COMBO_WINDOW;
+          State.score += ev.block.maxHp * State.combo;
+          updateHUD();
           const { x, y } = blockToPixel(ev.block.col, ev.block.row);
           Particles.burst(x, y, CFG.PARTICLE_COUNT, COLORS.PARTICLE);
           Audio.blockBreak();
+          if (State.combo >= 2) {
+            State.comboPopups.push({
+              text: `x${State.combo}`, x, y: y - Layout.cellSize * 0.3,
+              life: 0.9, maxLife: 0.9, color: comboColor(State.combo),
+            });
+            Audio.combo(State.combo);
+          }
+          if (ev.block.type === 'explosive') explosionQueue.push(ev.block);
         }
         if (ev.type === 'pickup') {
           const { x, y } = blockToPixel(ev.pu.col, ev.pu.row);
@@ -717,16 +821,37 @@ function updateRolling(dt) {
     }
   }
 
-  if (totalHitsThisStep >= CFG.SHAKE_THRESHOLD) {
-    shakeFrames = 11;
+  // Explosion chain reactions
+  while (explosionQueue.length > 0) {
+    const src = explosionQueue.shift();
+    for (const nb of getAdjacentBlocks(src.col, src.row)) {
+      if (nb.type === 'stone') continue;
+      nb.flashTimer = 0.18;
+      if (nb.type === 'armored') {
+        nb.armorHits = (nb.armorHits || 0) + 1;
+        if (nb.armorHits < 2) continue;
+        nb.armorHits = 0;
+      }
+      nb.hp--;
+      if (nb.hp <= 0) {
+        State.combo = Math.min(State.combo + 1, 10);
+        State.comboTimer = CFG.COMBO_WINDOW;
+        State.score += nb.maxHp * State.combo;
+        updateHUD();
+        const { x, y } = blockToPixel(nb.col, nb.row);
+        Particles.burst(x, y, CFG.PARTICLE_COUNT, COLORS.PARTICLE);
+        Audio.explosion();
+        if (nb.type === 'explosive') explosionQueue.push(nb);
+      }
+    }
   }
 
+  if (totalHitsThisStep >= CFG.SHAKE_THRESHOLD) shakeFrames = 11;
+
   // Check if all balls have landed (only end turn once all are fired + all landed)
-  const allLaunched = State.phase === 'rolling'; // firing phase sets rolling when done
+  const allLaunched = State.phase === 'rolling';
   const allDone = allLaunched && State.balls.length > 0 && State.balls.every(b => !b.alive);
-  if (allDone) {
-    endTurn();
-  }
+  if (allDone) endTurn();
 }
 
 function startFiring() {
@@ -740,6 +865,9 @@ function startFiring() {
   State.balls        = [];
   launchElapsed      = 0;
   launchIndex        = 0;
+  State.combo        = 0;
+  State.comboTimer   = 0;
+  State.comboPopups  = [];
   document.getElementById('btn-fast').style.display = '';
 }
 
@@ -827,8 +955,14 @@ function render() {
   Particles.draw(c);
   drawAim(c);
   drawDangerLine(c);
+  drawComboPopups(c);
 
   if (shaking) c.restore();
+
+  // Tick the in-flight ball count in HUD
+  if (State.phase === 'firing' || State.phase === 'rolling') {
+    document.getElementById('hud-balls').textContent = State.balls.filter(b => b.alive).length;
+  }
 }
 
 function renderIdle() {
@@ -860,27 +994,75 @@ function drawGrid(c) {
 function drawBlocks(c) {
   for (const block of State.blocks) {
     if (block.hp <= 0) continue;
-    const { x: tlx, y: tly } = cellTopLeft(block.col, block.row);
+
+    // Slide-in: offset y upward while animating
+    const yOff = block.slideOffset || 0;
+    const { x: tlx, y: tlyBase } = cellTopLeft(block.col, block.row);
+    const tly = tlyBase + yOff;
     const bw = Layout.blockW, bh = Layout.blockH;
     const r = 5;
-    const color = blockColor(block.hp, block.maxHp);
 
-    // Flash effect
-    const flash = block.flashTimer > 0;
+    const isStone = block.type === 'stone';
+    const color   = isStone ? COLORS.STONE : blockColor(block.hp, block.maxHp);
+    const flash   = block.flashTimer > 0;
 
     // Block fill
     c.fillStyle = flash ? '#ffffff' : color;
     roundRect(c, tlx, tly, bw, bh, r);
     c.fill();
 
-    // Subtle border
+    // Stone: diagonal hatch overlay
+    if (isStone && !flash) {
+      c.save();
+      c.beginPath(); roundRect(c, tlx, tly, bw, bh, r); c.clip();
+      c.strokeStyle = 'rgba(255,255,255,0.1)';
+      c.lineWidth = 1.5;
+      for (let i = -bh; i < bw + bh; i += 10) {
+        c.beginPath();
+        c.moveTo(tlx + i, tly);
+        c.lineTo(tlx + i + bh, tly + bh);
+        c.stroke();
+      }
+      c.restore();
+    }
+
+    // Explosive: pulsing orange glow border
+    if (block.type === 'explosive' && !flash) {
+      const pulse = (Math.sin(Date.now() * 0.006) + 1) / 2;
+      c.shadowColor = COLORS.EXPLOSIVE_GLOW;
+      c.shadowBlur  = 8 + pulse * 8;
+      c.strokeStyle = `rgba(255,120,0,${0.65 + pulse * 0.35})`;
+      c.lineWidth = 2;
+      roundRect(c, tlx + 1, tly + 1, bw - 2, bh - 2, r);
+      c.stroke();
+      c.shadowBlur = 0;
+    }
+
+    // Armored: gold border (+ crack when first armor-hit absorbed)
+    if (block.type === 'armored' && !flash) {
+      c.strokeStyle = COLORS.ARMORED_BORDER;
+      c.lineWidth = 2;
+      roundRect(c, tlx + 1, tly + 1, bw - 2, bh - 2, r);
+      c.stroke();
+      if (block.armorHits > 0) {
+        c.strokeStyle = 'rgba(255,255,255,0.55)';
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.moveTo(tlx + bw * 0.35, tly + bh * 0.18);
+        c.lineTo(tlx + bw * 0.50, tly + bh * 0.55);
+        c.lineTo(tlx + bw * 0.66, tly + bh * 0.82);
+        c.stroke();
+      }
+    }
+
+    // Subtle base border
     c.strokeStyle = flash ? '#ffffff' : 'rgba(255,255,255,0.15)';
     c.lineWidth = 1;
     roundRect(c, tlx, tly, bw, bh, r);
     c.stroke();
 
-    // Glow for low-hp blocks
-    if (!flash && block.hp === 1) {
+    // Glow for low-hp (non-stone) blocks
+    if (!flash && !isStone && block.hp === 1) {
       c.shadowColor = color;
       c.shadowBlur  = 14;
       roundRect(c, tlx, tly, bw, bh, r);
@@ -888,25 +1070,47 @@ function drawBlocks(c) {
     }
     c.shadowBlur = 0;
 
-    // HP text
+    // HP text (stone shows ∞)
     const fontSize = Math.max(9, Math.min(Layout.blockW * 0.38, 18));
     c.font = `700 ${fontSize}px "Segoe UI", Arial, sans-serif`;
     c.textAlign    = 'center';
     c.textBaseline = 'middle';
-    c.fillStyle    = flash ? '#000' : 'rgba(255,255,255,0.92)';
-    c.shadowBlur   = 0;
-    c.fillText(
-      block.hp > 999 ? '...' : block.hp,
-      tlx + bw / 2,
-      tly + bh / 2
-    );
+    c.fillStyle    = flash ? '#000' : (isStone ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.92)');
+    c.fillText(isStone ? '∞' : (block.hp > 999 ? '...' : block.hp), tlx + bw / 2, tly + bh / 2);
+
+    // Small type badge (bottom-right corner)
+    if (!flash) {
+      const badgeSize = Math.max(7, bh * 0.22);
+      c.font = `700 ${badgeSize}px "Segoe UI", Arial, sans-serif`;
+      c.textAlign    = 'right';
+      c.textBaseline = 'bottom';
+      if (block.type === 'armored') {
+        c.fillStyle = 'rgba(255,215,0,0.85)';
+        c.fillText('◆', tlx + bw - 3, tly + bh - 2);
+      } else if (block.type === 'explosive') {
+        c.fillStyle = 'rgba(255,120,0,0.9)';
+        c.fillText('!', tlx + bw - 3, tly + bh - 2);
+      }
+    }
+
+    // Danger pulse for blocks in the last two rows
+    if (block.row >= CFG.ROWS - 2) {
+      const pulse = (Math.sin(Date.now() * 0.008) + 1) / 2;
+      c.globalAlpha = 0.28 + pulse * 0.32;
+      c.fillStyle = '#ff3d71';
+      roundRect(c, tlx, tly, bw, bh, r);
+      c.fill();
+      c.globalAlpha = 1;
+    }
   }
 }
 
 function drawPickups(c) {
   for (const pu of State.pickups) {
     if (pu.collected) continue;
-    const { x, y } = blockToPixel(pu.col, pu.row);
+    const yOff = pu.slideOffset || 0;
+    const { x, y: yBase } = blockToPixel(pu.col, pu.row);
+    const y = yBase + yOff;
     const r = Layout.cellSize * 0.22;
 
     // Glow
@@ -1054,6 +1258,27 @@ function drawDangerLine(c) {
   c.setLineDash([]);
 }
 
+function comboColor(n) {
+  const cols = ['#ffeb3b', '#ff9800', '#ff3d71', '#e040fb', '#00e5ff'];
+  return cols[Math.min(n - 2, cols.length - 1)];
+}
+
+function drawComboPopups(c) {
+  for (const p of State.comboPopups) {
+    const alpha = p.life / p.maxLife;
+    c.globalAlpha = alpha;
+    c.font = `900 ${Math.round(20 + (1 - alpha) * 6)}px "Segoe UI", Arial, sans-serif`;
+    c.textAlign    = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle    = p.color;
+    c.shadowColor  = p.color;
+    c.shadowBlur   = 10;
+    c.fillText(p.text, p.x, p.y);
+    c.shadowBlur = 0;
+  }
+  c.globalAlpha = 1;
+}
+
 // Utility: draw a rounded rectangle path
 function roundRect(c, x, y, w, h, r) {
   if (w < 2 * r) r = w / 2;
@@ -1102,11 +1327,13 @@ function initGame() {
   // Spawn the first few rows so there's something to shoot at immediately
   const startRows = 3;
   for (let i = 0; i < startRows; i++) {
-    // Shift all existing entities down to make room at the top
     for (const b of State.blocks) b.row++;
     for (const p of State.pickups) p.row++;
-    spawnRow(); // always places at row 0
+    spawnRow();
   }
+  // No slide animation for the initial blocks — they appear instantly
+  for (const b of State.blocks) b.slideOffset = 0;
+  for (const p of State.pickups) p.slideOffset = 0;
 
   updateHUD();
 }
