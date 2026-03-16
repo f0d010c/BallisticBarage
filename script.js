@@ -395,187 +395,117 @@ function makeBall(x, y, vx, vy) {
 }
 
 /**
- * Swept circle vs AABB — continuous collision detection.
- * Circle at (cx, cy) moving by displacement (dx, dy).
- * AABB at [bx, bx+bw] x [by, by+bh], expanded by radius r (Minkowski sum).
- * Returns { t, nx, ny } where t ∈ (0,1] is the fraction of displacement
- * at which first contact occurs, and (nx, ny) is the face normal.
- * Returns null if no collision.
- */
-function sweptCircleAABB(cx, cy, dx, dy, bx, by, bw, bh, r) {
-  // Expand AABB by ball radius
-  const ex = bx - r,  ey = by - r;
-  const ew = bw + r * 2, eh = bh + r * 2;
-
-  let tEntry = -Infinity, tExit = Infinity;
-  let nx = 0, ny = 0;
-
-  // X slab
-  if (Math.abs(dx) > 1e-10) {
-    let t1 = (ex - cx) / dx;
-    let t2 = (ex + ew - cx) / dx;
-    let entryNx = (dx > 0) ? -1 : 1;
-    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; entryNx = -entryNx; }
-    if (t1 > tEntry) { tEntry = t1; nx = entryNx; ny = 0; }
-    tExit = Math.min(tExit, t2);
-  } else {
-    if (cx < ex || cx > ex + ew) return null;
-  }
-
-  // Y slab
-  if (Math.abs(dy) > 1e-10) {
-    let t1 = (ey - cy) / dy;
-    let t2 = (ey + eh - cy) / dy;
-    let entryNy = (dy > 0) ? -1 : 1;
-    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; entryNy = -entryNy; }
-    if (t1 > tEntry) { tEntry = t1; nx = 0; ny = entryNy; }
-    tExit = Math.min(tExit, t2);
-  } else {
-    if (cy < ey || cy > ey + eh) return null;
-  }
-
-  if (tEntry > tExit) return null;   // miss
-  if (tEntry <= 0 || tEntry > 1) return null; // behind or beyond move
-
-  return { t: tEntry, nx, ny };
-}
-
-/**
- * Step a ball forward by dt seconds using swept CCD.
- * Iterates up to 4 bounces within the timestep to prevent tunneling.
+ * Step a ball forward by dt seconds.
+ * Splits dt into SUBSTEPS micro-steps so the ball moves only ~1-2px per
+ * sub-step, making tunneling impossible without needing complex CCD.
  * Returns an array of event descriptors.
  */
 function stepBall(ball, dt) {
   if (ball.landed) return [];
-  const events = [];
-  const r = CFG.BALL_RADIUS;
 
-  // Record trail point
-  ball.trail.push({ x: ball.x, y: ball.y });
-  if (ball.trail.length > 8) ball.trail.shift();
+  const events  = [];
+  const r       = CFG.BALL_RADIUS;
+  const SUBSTEPS = 6;
+  const subDt   = dt / SUBSTEPS;
 
   const leftX  = Layout.gridOffX;
   const rightX = Layout.gridOffX + CFG.COLS * Layout.cellSize;
   const topY   = Layout.gridOffY;
   const botY   = Layout.launchZoneY;
 
-  // Depenetrate: if ball is somehow already inside a block, push it out
-  for (const block of State.blocks) {
-    if (block.hp <= 0) continue;
-    const { x: bx, y: by } = cellTopLeft(block.col, block.row);
-    const bw = Layout.blockW, bh = Layout.blockH;
-    const overlapL = (ball.x + r) - bx;
-    const overlapR = (bx + bw) - (ball.x - r);
-    const overlapT = (ball.y + r) - by;
-    const overlapB = (by + bh) - (ball.y - r);
-    if (overlapL > 0 && overlapR > 0 && overlapT > 0 && overlapB > 0) {
-      const minO = Math.min(overlapL, overlapR, overlapT, overlapB);
-      if      (minO === overlapL) { ball.x -= overlapL; ball.vx = -Math.abs(ball.vx); }
-      else if (minO === overlapR) { ball.x += overlapR; ball.vx =  Math.abs(ball.vx); }
-      else if (minO === overlapT) { ball.y -= overlapT; ball.vy = -Math.abs(ball.vy); }
-      else                        { ball.y += overlapB; ball.vy =  Math.abs(ball.vy); }
-    }
-  }
+  // Record trail point once per full step
+  ball.trail.push({ x: ball.x, y: ball.y });
+  if (ball.trail.length > 8) ball.trail.shift();
 
-  let remaining = dt;
+  for (let s = 0; s < SUBSTEPS; s++) {
+    if (ball.landed) break;
 
-  for (let iter = 0; iter < 5 && remaining > 1e-7; iter++) {
-    const moveX = ball.vx * remaining;
-    const moveY = ball.vy * remaining;
+    // Move
+    ball.x += ball.vx * subDt;
+    ball.y += ball.vy * subDt;
 
-    // ── Find earliest collision this sub-step ──
-    let tMin   = 1.0;
-    let hitNx  = 0, hitNy = 0;
-    let hitBlock = null;
-    let hitType  = null;
-
-    // Wall: left
-    if (moveX !== 0) {
-      const t = (leftX + r - ball.x) / moveX;
-      if (t > 1e-5 && t <= tMin) { tMin = t; hitNx = -1; hitNy = 0; hitType = 'wall'; hitBlock = null; }
-    }
-    // Wall: right
-    if (moveX !== 0) {
-      const t = (rightX - r - ball.x) / moveX;
-      if (t > 1e-5 && t <= tMin) { tMin = t; hitNx = 1; hitNy = 0; hitType = 'wall'; hitBlock = null; }
-    }
-    // Wall: top
-    if (moveY !== 0) {
-      const t = (topY + r - ball.y) / moveY;
-      if (t > 1e-5 && t <= tMin) { tMin = t; hitNx = 0; hitNy = -1; hitType = 'wall'; hitBlock = null; }
-    }
-    // Bottom (landing zone)
-    if (moveY !== 0) {
-      const t = (botY - r - ball.y) / moveY;
-      if (t > 1e-5 && t <= tMin) { tMin = t; hitNx = 0; hitNy = 1; hitType = 'bottom'; hitBlock = null; }
+    // ── Wall collisions ──
+    if (ball.x - r < leftX) {
+      ball.x  = leftX + r;
+      ball.vx = Math.abs(ball.vx);
+      events.push('wall');
+    } else if (ball.x + r > rightX) {
+      ball.x  = rightX - r;
+      ball.vx = -Math.abs(ball.vx);
+      events.push('wall');
     }
 
-    // Blocks (swept CCD)
-    for (const block of State.blocks) {
-      if (block.hp <= 0) continue;
-      const { x: bx, y: by } = cellTopLeft(block.col, block.row);
-      const hit = sweptCircleAABB(
-        ball.x, ball.y, moveX, moveY,
-        bx, by, Layout.blockW, Layout.blockH, r
-      );
-      if (hit && hit.t < tMin) {
-        tMin = hit.t; hitNx = hit.nx; hitNy = hit.ny;
-        hitBlock = block; hitType = 'block';
-      }
+    if (ball.y - r < topY) {
+      ball.y  = topY + r;
+      ball.vy = Math.abs(ball.vy);
+      events.push('wall');
     }
 
-    // ── Advance ball to collision point (or end of step) ──
-    ball.x += moveX * tMin;
-    ball.y += moveY * tMin;
-    remaining *= (1 - tMin);
-
-    // ── Resolve ──
-    if (hitType === 'bottom') {
-      ball.x = Math.max(leftX + r, Math.min(rightX - r, ball.x));
+    // ── Bottom — ball lands ──
+    if (ball.y + r >= botY) {
+      ball.x     = Math.max(leftX + r, Math.min(rightX - r, ball.x));
+      ball.y     = botY - r;
       ball.landed = true;
       ball.alive  = false;
       events.push('land');
       break;
     }
 
-    if (hitType === 'wall') {
-      // v -= 2(v·n)n  — correct reflection for any surface normal
-      const dot = ball.vx * hitNx + ball.vy * hitNy;
-      ball.vx -= 2 * dot * hitNx;
-      ball.vy -= 2 * dot * hitNy;
-      events.push('wall');
-    }
+    // ── Block collisions (check all blocks, allow multiple hits) ──
+    for (const block of State.blocks) {
+      if (block.hp <= 0) continue;
 
-    if (hitType === 'block') {
-      const dot = ball.vx * hitNx + ball.vy * hitNy;
-      ball.vx -= 2 * dot * hitNx;
-      ball.vy -= 2 * dot * hitNy;
+      const { x: bx, y: by } = cellTopLeft(block.col, block.row);
+      const bw = Layout.blockW, bh = Layout.blockH;
 
-      hitBlock.hp--;
-      hitBlock.flashTimer = 0.12;
-      events.push({ type: 'hit', block: hitBlock });
-      if (hitBlock.hp <= 0) {
-        events.push({ type: 'break', block: hitBlock });
-        State.score += hitBlock.maxHp;
+      // Broad-phase AABB
+      if (ball.x + r < bx || ball.x - r > bx + bw ||
+          ball.y + r < by || ball.y - r > by + bh) continue;
+
+      // Overlap on each axis
+      const oL = (ball.x + r) - bx;
+      const oR = (bx + bw)    - (ball.x - r);
+      const oT = (ball.y + r) - by;
+      const oB = (by + bh)    - (ball.y - r);
+
+      if (oL <= 0 || oR <= 0 || oT <= 0 || oB <= 0) continue;
+
+      // Push out on shallowest axis, flip velocity on that axis
+      const minO = Math.min(oL, oR, oT, oB);
+      if (minO === oL) { ball.x -= oL; ball.vx = -Math.abs(ball.vx); }
+      else if (minO === oR) { ball.x += oR; ball.vx =  Math.abs(ball.vx); }
+      else if (minO === oT) { ball.y -= oT; ball.vy = -Math.abs(ball.vy); }
+      else                  { ball.y += oB; ball.vy =  Math.abs(ball.vy); }
+
+      // Damage block once per full step (avoid multi-hit within substeps)
+      if (!block._hitThisStep) {
+        block._hitThisStep = true;
+        block.hp--;
+        block.flashTimer = 0.12;
+        events.push({ type: 'hit', block });
+        if (block.hp <= 0) {
+          events.push({ type: 'break', block });
+          State.score += block.maxHp;
+        }
       }
     }
 
-    // No collision found — ball moved freely to end of step
-    if (hitType === null) break;
-  }
-
-  // Pickup check at final position (simple overlap — no bounce needed)
-  for (const pu of State.pickups) {
-    if (pu.collected) continue;
-    const { x: px, y: py } = blockToPixel(pu.col, pu.row);
-    const puR = Layout.cellSize * 0.22;
-    const ddx = ball.x - px, ddy = ball.y - py;
-    if (ddx * ddx + ddy * ddy < (r + puR) * (r + puR)) {
-      pu.collected = true;
-      State.pendingBallGain++;
-      events.push({ type: 'pickup', pu });
+    // ── Pickup collisions ──
+    for (const pu of State.pickups) {
+      if (pu.collected) continue;
+      const { x: px, y: py } = blockToPixel(pu.col, pu.row);
+      const puR = Layout.cellSize * 0.22;
+      const dx  = ball.x - px, dy = ball.y - py;
+      if (dx * dx + dy * dy < (r + puR) * (r + puR)) {
+        pu.collected = true;
+        State.pendingBallGain++;
+        events.push({ type: 'pickup', pu });
+      }
     }
   }
+
+  // Clear the per-step hit flag
+  for (const block of State.blocks) block._hitThisStep = false;
 
   return events;
 }
