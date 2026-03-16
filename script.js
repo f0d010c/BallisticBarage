@@ -381,7 +381,7 @@ const Input = {
     angle = Math.max(minRad, Math.min(Math.PI - minRad, angle));
 
     this.aimAngle = angle;
-    this.valid = -dy > 0; // must point upward
+    this.valid = true; // angle clamp already prevents straight-down shots
   },
 };
 
