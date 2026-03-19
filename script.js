@@ -69,33 +69,33 @@ const CFG = {
 
 // Colours (drawn on canvas)
 const COLORS = {
-  BG:          '#0a0c14',
-  BG_GRID:     'rgba(255,255,255,0.025)',
-  BALL:        '#00e5ff',
-  BALL_GLOW:   'rgba(0,229,255,0.35)',
-  PICKUP:      '#a8ff78',
-  PICKUP_GLOW: 'rgba(168,255,120,0.4)',
+  BG:          '#04060f',
+  BG_GRID:     'rgba(0,240,255,0.022)',
+  BALL:        '#00f0ff',
+  BALL_GLOW:   'rgba(0,240,255,0.4)',
+  PICKUP:      '#39ff14',
+  PICKUP_GLOW: 'rgba(57,255,20,0.4)',
   BLOCK:       [          // gradient by health tier
-    '#1e3a5f', // tier 0
-    '#0f5fa8', // tier 1
-    '#0a8fcc', // tier 2
-    '#00bcd4', // tier 3
-    '#00e676', // tier 4
-    '#ffeb3b', // tier 5
-    '#ff9800', // tier 6
-    '#f44336', // tier 7
-    '#e040fb', // tier 8+
+    '#0d2040', // tier 0
+    '#0a4a90', // tier 1
+    '#0065cc', // tier 2
+    '#0099cc', // tier 3
+    '#00c89a', // tier 4
+    '#88e000', // tier 5
+    '#ffaa00', // tier 6
+    '#ff4400', // tier 7
+    '#ff0066', // tier 8+
   ],
-  PARTICLE:    ['#00e5ff','#ff3d71','#ffd700','#a8ff78','#ff9800'],
-  WALL_LINE:      'rgba(0,229,255,0.12)',
-  AIM_LINE:       'rgba(0,229,255,0.55)',
-  AIM_DOT:        'rgba(0,229,255,0.25)',
-  GHOST_BALL:     'rgba(0,229,255,0.2)',
-  LAUNCH_ZONE:    'rgba(0,229,255,0.06)',
-  DANGER_LINE:    'rgba(255,61,113,0.4)',
-  STONE:          '#4a4a60',
-  ARMORED_BORDER: '#ffd700',
-  EXPLOSIVE_GLOW: '#ff7800',
+  PARTICLE:    ['#00f0ff','#ff1a5e','#ffcc00','#39ff14','#ff6600'],
+  WALL_LINE:      'rgba(0,240,255,0.1)',
+  AIM_LINE:       'rgba(0,240,255,0.65)',
+  AIM_DOT:        '#00f0ff',
+  GHOST_BALL:     'rgba(0,240,255,0.18)',
+  LAUNCH_ZONE:    'rgba(0,240,255,0.05)',
+  DANGER_LINE:    'rgba(255,26,94,0.55)',
+  STONE:          '#3a3a55',
+  ARMORED_BORDER: '#ffcc00',
+  EXPLOSIVE_GLOW: '#ff6600',
 };
 
 // ─────────────────────────────────────────────
@@ -943,6 +943,13 @@ function render() {
   c.fillStyle = COLORS.BG;
   c.fillRect(0, 0, W, H);
 
+  // Vignette — darken corners, subtle top glow
+  const vignette = c.createRadialGradient(W * 0.5, H * 0.42, H * 0.1, W * 0.5, H * 0.5, H * 0.88);
+  vignette.addColorStop(0, 'transparent');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.55)');
+  c.fillStyle = vignette;
+  c.fillRect(0, 0, W, H);
+
   drawGrid(c);
   drawBlocks(c);
   drawPickups(c);
@@ -975,6 +982,8 @@ function drawGrid(c) {
   const { gridOffX, gridOffY, cellSize } = Layout;
   const gridW = CFG.COLS * cellSize;
   const gridH = CFG.ROWS * cellSize;
+
+  // Subtle grid lines
   c.strokeStyle = COLORS.BG_GRID;
   c.lineWidth   = 0.5;
   for (let col = 0; col <= CFG.COLS; col++) {
@@ -984,6 +993,16 @@ function drawGrid(c) {
   for (let row = 0; row <= CFG.ROWS; row++) {
     const y = gridOffY + row * cellSize;
     c.beginPath(); c.moveTo(gridOffX, y); c.lineTo(gridOffX + gridW, y); c.stroke();
+  }
+
+  // Crosshair dots at intersections — targeting reticle aesthetic
+  c.fillStyle = 'rgba(0,240,255,0.18)';
+  for (let col = 0; col <= CFG.COLS; col++) {
+    for (let row = 0; row <= CFG.ROWS; row++) {
+      c.beginPath();
+      c.arc(gridOffX + col * cellSize, gridOffY + row * cellSize, 1, 0, Math.PI * 2);
+      c.fill();
+    }
   }
 }
 
@@ -1006,6 +1025,17 @@ function drawBlocks(c) {
     c.fillStyle = flash ? '#ffffff' : color;
     roundRect(c, tlx, tly, bw, bh, r);
     c.fill();
+
+    // Inner lighting: top highlight + bottom shadow for depth
+    if (!flash) {
+      c.save();
+      c.beginPath(); roundRect(c, tlx, tly, bw, bh, r); c.clip();
+      c.fillStyle = 'rgba(255,255,255,0.16)';
+      c.fillRect(tlx, tly, bw, bh * 0.42);
+      c.fillStyle = 'rgba(0,0,0,0.28)';
+      c.fillRect(tlx, tly + bh * 0.60, bw, bh * 0.40);
+      c.restore();
+    }
 
     // Stone: diagonal hatch overlay
     if (isStone && !flash) {
@@ -1067,8 +1097,8 @@ function drawBlocks(c) {
     c.shadowBlur = 0;
 
     // HP text (stone shows ∞)
-    const fontSize = Math.max(9, Math.min(Layout.blockW * 0.38, 18));
-    c.font = `700 ${fontSize}px "Segoe UI", Arial, sans-serif`;
+    const fontSize = Math.max(8, Math.min(Layout.blockW * 0.36, 16));
+    c.font = `700 ${fontSize}px 'Orbitron', 'Segoe UI', sans-serif`;
     c.textAlign    = 'center';
     c.textBaseline = 'middle';
     c.fillStyle    = flash ? '#000' : (isStone ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.92)');
@@ -1076,8 +1106,8 @@ function drawBlocks(c) {
 
     // Small type badge (bottom-right corner)
     if (!flash) {
-      const badgeSize = Math.max(7, bh * 0.22);
-      c.font = `700 ${badgeSize}px "Segoe UI", Arial, sans-serif`;
+      const badgeSize = Math.max(6, bh * 0.2);
+      c.font = `700 ${badgeSize}px 'Orbitron', 'Segoe UI', sans-serif`;
       c.textAlign    = 'right';
       c.textBaseline = 'bottom';
       if (block.type === 'armored') {
@@ -1108,28 +1138,39 @@ function drawPickups(c) {
     const { x, y: yBase } = blockToPixel(pu.col, pu.row);
     const y = yBase + yOff;
     const r = Layout.cellSize * 0.22;
+    const pulse = (Math.sin(Date.now() * 0.004) + 1) / 2;
 
-    // Glow
-    c.shadowColor = COLORS.PICKUP;
-    c.shadowBlur  = 18;
-    c.fillStyle   = COLORS.PICKUP_GLOW;
+    // Outer pulsing ring
+    c.save();
+    c.globalAlpha = 0.22 + pulse * 0.28;
+    c.strokeStyle = COLORS.PICKUP;
+    c.lineWidth = 1.5;
     c.beginPath();
-    c.arc(x, y, r * 1.5, 0, Math.PI * 2);
-    c.fill();
-    c.shadowBlur = 0;
+    c.arc(x, y, r * (1.85 + pulse * 0.38), 0, Math.PI * 2);
+    c.stroke();
+    c.restore();
 
-    // Orb
-    c.fillStyle = COLORS.PICKUP;
+    // Glow shadow
+    c.shadowColor = COLORS.PICKUP;
+    c.shadowBlur  = 14 + pulse * 10;
+
+    // Orb with radial gradient (white specular → green → dark edge)
+    const grad = c.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+    grad.addColorStop(0,   '#ffffff');
+    grad.addColorStop(0.3, COLORS.PICKUP);
+    grad.addColorStop(1,   'rgba(10,60,10,0.85)');
+    c.fillStyle = grad;
     c.beginPath();
     c.arc(x, y, r, 0, Math.PI * 2);
     c.fill();
+    c.shadowBlur = 0;
 
     // '+1' label
-    const fontSize = Math.max(8, Math.min(r * 1.1, 13));
-    c.font = `700 ${fontSize}px "Segoe UI", Arial, sans-serif`;
+    const fontSize = Math.max(7, Math.min(r * 0.95, 11));
+    c.font = `700 ${fontSize}px 'Orbitron', sans-serif`;
     c.textAlign    = 'center';
     c.textBaseline = 'middle';
-    c.fillStyle = '#000';
+    c.fillStyle = 'rgba(0,0,0,0.85)';
     c.fillText('+1', x, y);
   }
 }
@@ -1167,24 +1208,40 @@ function drawBalls(c) {
     // Trail
     for (let i = 0; i < ball.trail.length; i++) {
       const t = ball.trail[i];
-      const alpha = (i / ball.trail.length) * 0.3;
-      const r = CFG.BALL_RADIUS * (i / ball.trail.length) * 0.7;
-      c.globalAlpha = alpha;
+      const frac = i / ball.trail.length;
+      c.globalAlpha = frac * 0.32;
       c.fillStyle = COLORS.BALL;
       c.beginPath();
-      c.arc(t.x, t.y, Math.max(1, r), 0, Math.PI * 2);
+      c.arc(t.x, t.y, Math.max(1, CFG.BALL_RADIUS * frac * 0.72), 0, Math.PI * 2);
       c.fill();
     }
     c.globalAlpha = 1;
 
-    // Ball glow
+    const r = CFG.BALL_RADIUS;
+
+    // Outer diffuse glow (radial gradient, no shadow API needed)
+    const glowGrad = c.createRadialGradient(ball.x, ball.y, r * 0.5, ball.x, ball.y, r * 3.2);
+    glowGrad.addColorStop(0, 'rgba(0,240,255,0.28)');
+    glowGrad.addColorStop(1, 'rgba(0,240,255,0)');
+    c.fillStyle = glowGrad;
+    c.beginPath();
+    c.arc(ball.x, ball.y, r * 3.2, 0, Math.PI * 2);
+    c.fill();
+
+    // Ball body
     c.shadowColor = COLORS.BALL;
-    c.shadowBlur  = 12;
+    c.shadowBlur  = 20;
     c.fillStyle   = COLORS.BALL;
     c.beginPath();
-    c.arc(ball.x, ball.y, CFG.BALL_RADIUS, 0, Math.PI * 2);
+    c.arc(ball.x, ball.y, r, 0, Math.PI * 2);
     c.fill();
     c.shadowBlur = 0;
+
+    // Inner white specular highlight
+    c.fillStyle = 'rgba(255,255,255,0.88)';
+    c.beginPath();
+    c.arc(ball.x - r * 0.24, ball.y - r * 0.24, r * 0.38, 0, Math.PI * 2);
+    c.fill();
   }
 }
 
@@ -1263,7 +1320,7 @@ function drawComboPopups(c) {
   for (const p of State.comboPopups) {
     const alpha = p.life / p.maxLife;
     c.globalAlpha = alpha;
-    c.font = `900 ${Math.round(20 + (1 - alpha) * 6)}px "Segoe UI", Arial, sans-serif`;
+    c.font = `900 ${Math.round(17 + (1 - alpha) * 8)}px 'Orbitron', 'Segoe UI', sans-serif`;
     c.textAlign    = 'center';
     c.textBaseline = 'middle';
     c.fillStyle    = p.color;
