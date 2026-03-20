@@ -344,9 +344,10 @@ const Input = {
     canvas.addEventListener('mouseup',    e => this._end());
     canvas.addEventListener('mouseleave', e => this._cancel());
 
-    canvas.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0]; this._start(t.clientX, t.clientY); }, { passive: false });
-    canvas.addEventListener('touchmove',  e => { e.preventDefault(); const t = e.touches[0]; this._move(t.clientX, t.clientY); }, { passive: false });
-    canvas.addEventListener('touchend',   e => { e.preventDefault(); this._end(); }, { passive: false });
+    canvas.addEventListener('touchstart',  e => { e.preventDefault(); const t = e.touches[0]; this._start(t.clientX, t.clientY); }, { passive: false });
+    canvas.addEventListener('touchmove',   e => { e.preventDefault(); const t = e.touches[0]; this._move(t.clientX, t.clientY); }, { passive: false });
+    canvas.addEventListener('touchend',    e => { e.preventDefault(); this._end(); }, { passive: false });
+    canvas.addEventListener('touchcancel', e => { e.preventDefault(); this._cancel(); }, { passive: false });
   },
 
   _canvasPos(clientX, clientY) {
@@ -390,23 +391,27 @@ const Input = {
   },
 
   _calcAngle() {
+    // If pointer is dragged below the launch zone, cancel the shot
+    if (this.currentY > Layout.launchZoneY) {
+      this.valid = false;
+      return;
+    }
+
     // Angle from launch position toward cursor
     const dx = this.currentX - State.launchX;
     const dy = this.currentY - State.launchY; // positive = downward
 
-    // We want upward direction: dy must be negative
     const minDeg = CFG.MIN_ANGLE_DEG;
     const minRad = minDeg * Math.PI / 180;
 
     // Angle from positive-x axis, going counter-clockwise
-    // But easier: use atan2 from launch origin
     let angle = Math.atan2(-dy, dx); // angle above horizontal (positive x)
 
     // Clamp to [minRad, PI - minRad]
     angle = Math.max(minRad, Math.min(Math.PI - minRad, angle));
 
     this.aimAngle = angle;
-    this.valid = true; // angle clamp already prevents straight-down shots
+    this.valid = true;
   },
 };
 
@@ -1246,23 +1251,41 @@ function drawBalls(c) {
 }
 
 function drawAim(c) {
-  if (State.phase !== 'aiming' || !Input.down || !Input.valid) return;
+  if (State.phase !== 'aiming' || !Input.down) return;
 
   const lx = State.launchX, ly = State.launchY;
-  const angle  = Input.aimAngle;
-  const speed  = CFG.BALL_SPEED;
+
+  // Show cancel indicator when dragged below the floor
+  if (!Input.valid) {
+    const r = 12;
+    const xCy = ly - CFG.BALL_RADIUS - r - 6;
+    c.save();
+    c.strokeStyle = 'rgba(255, 80, 80, 0.9)';
+    c.lineWidth = 3.5;
+    c.lineCap = 'round';
+    c.beginPath();
+    c.moveTo(lx - r, xCy - r);
+    c.lineTo(lx + r, xCy + r);
+    c.moveTo(lx + r, xCy - r);
+    c.lineTo(lx - r, xCy + r);
+    c.stroke();
+    c.restore();
+    return;
+  }
+
+  const angle = Input.aimAngle;
+  const speed = CFG.BALL_SPEED;
   const vx = Math.cos(angle) * speed;
   const vy = -Math.sin(angle) * speed;
 
   // Simulate trajectory for preview dots
   let px = lx, py = ly, pvx = vx, pvy = vy;
   const simDt   = 0.016;
-  const dotStep = 5;
+  const dotStep = 6;
   let dotCount  = 0;
-  const maxDots = 80;
+  const maxDots = 45;
 
-  c.fillStyle = COLORS.AIM_DOT;
-
+  c.save();
   for (let step = 0; step < 600 && dotCount < maxDots; step++) {
     px += pvx * simDt;
     py += pvy * simDt;
@@ -1276,26 +1299,19 @@ function drawAim(c) {
     if (pvy > 0 && py + CFG.BALL_RADIUS > Layout.launchZoneY) break;
 
     if (step % dotStep === 0) {
-      const alpha = 1 - dotCount / maxDots;
-      c.globalAlpha = alpha * 0.65;
+      const t = dotCount / maxDots;          // 0 = near launcher, 1 = far
+      const alpha = (1 - t * 0.75) * 0.88;  // fade from 0.88 → 0.22
+      const dotR  = 7 - t * 4;              // shrink from 7px → 3px
+
+      c.globalAlpha = alpha;
+      c.fillStyle = 'rgba(210, 225, 255, 1)';
       c.beginPath();
-      c.arc(px, py, 3, 0, Math.PI * 2);
+      c.arc(px, py, Math.max(dotR, 2.5), 0, Math.PI * 2);
       c.fill();
       dotCount++;
     }
   }
-  c.globalAlpha = 1;
-
-  // Arrow at the start
-  const arrowLen = 36;
-  const ex = lx + Math.cos(angle) * arrowLen;
-  const ey = ly - Math.sin(angle) * arrowLen;
-  c.strokeStyle = COLORS.AIM_LINE;
-  c.lineWidth   = 2;
-  c.beginPath();
-  c.moveTo(lx, ly - CFG.BALL_RADIUS - 2);
-  c.lineTo(ex, ey);
-  c.stroke();
+  c.restore();
 }
 
 function drawDangerLine(c) {
