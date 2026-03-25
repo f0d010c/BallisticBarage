@@ -50,6 +50,10 @@
         </div>
       </div>
       <button id="btn-play" class="btn-primary pulse">PLAY</button>
+      <div class="start-btn-row">
+        <button id="btn-skins" class="btn-secondary">SKINS</button>
+        <button id="btn-leaderboard-start" class="btn-secondary">LEADERBOARD</button>
+      </div>
       <div class="best-score-display" id="start-best-score"></div>
     </div>
   </div>
@@ -74,6 +78,7 @@
       </div>
       <div class="new-best" id="new-best-badge">★ NEW BEST ★</div>
       <button id="btn-restart" class="btn-primary">PLAY AGAIN</button>
+      <button id="btn-leaderboard-go" class="btn-secondary">LEADERBOARD</button>
     </div>
   </div>
 
@@ -82,7 +87,36 @@
     <div class="overlay-content">
       <h2 class="pause-title">PAUSED</h2>
       <button id="btn-resume" class="btn-primary">RESUME</button>
+      <button id="btn-skins-pause" class="btn-secondary">SKINS</button>
       <button id="btn-restart-pause" class="btn-secondary">RESTART</button>
+    </div>
+  </div>
+
+  <!-- Skin Selector Screen -->
+  <div id="skin-screen" class="overlay">
+    <div class="overlay-content">
+      <h2 class="section-title">BALL SKINS</h2>
+      <div class="skin-grid" id="skin-grid"></div>
+      <button id="btn-skin-close" class="btn-secondary">DONE</button>
+    </div>
+  </div>
+
+  <!-- Leaderboard Screen -->
+  <div id="leaderboard-screen" class="overlay">
+    <div class="overlay-content leaderboard-content">
+      <h2 class="section-title">LEADERBOARD</h2>
+      <div id="lb-auth-row" class="lb-auth-row">
+        <div class="lb-user-chip">
+          <img id="lb-user-photo" class="lb-user-photo" src="" alt="" style="display:none">
+          <span id="lb-user-name" class="lb-user-name"></span>
+        </div>
+        <div class="lb-auth-btns">
+          <button id="btn-signin" class="btn-auth">SIGN IN WITH GOOGLE</button>
+          <button id="btn-signout" class="btn-auth btn-auth-out" style="display:none">SIGN OUT</button>
+        </div>
+      </div>
+      <div id="lb-list" class="lb-list"></div>
+      <button id="btn-lb-close" class="btn-secondary">CLOSE</button>
     </div>
   </div>
 
@@ -122,6 +156,11 @@
     <canvas id="game-canvas"></canvas>
 
   </div>
+
+  <!-- Firebase SDK (compat v9) — only loaded, not initialized unless FIREBASE_CONFIG is set in script.js -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
   <script src="script.js"></script>
 </body>

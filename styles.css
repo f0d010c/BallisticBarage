@@ -87,10 +87,12 @@ body::after {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
-  padding: 36px 30px;
+  gap: 16px;
+  padding: 28px 28px;
   max-width: 380px;
   width: 90%;
+  max-height: 90svh;
+  overflow-y: auto;
   background: var(--panel);
   border: 1px solid rgba(0, 240, 255, 0.18);
   border-radius: var(--radius);
@@ -290,6 +292,7 @@ body::after {
   letter-spacing: 4px;
   text-transform: uppercase;
   cursor: pointer;
+  outline: none;
   transition: background 0.2s, box-shadow 0.2s, transform 0.12s, border-color 0.2s;
   box-shadow: 0 0 18px rgba(0, 240, 255, 0.1), inset 0 0 18px rgba(0, 240, 255, 0.03);
   min-width: 180px;
@@ -319,6 +322,8 @@ body::after {
   letter-spacing: 3px;
   text-transform: uppercase;
   cursor: pointer;
+  outline: none;
+  white-space: nowrap;
   transition: color 0.2s, border-color 0.2s, transform 0.12s;
 }
 
@@ -480,4 +485,248 @@ body::after {
 @media (max-height: 700px) {
   #hud { padding: 5px 12px; }
   .hud-value { font-size: 0.9rem; }
+}
+
+/* ===== SECTION TITLE (shared) ===== */
+
+.section-title {
+  font-family: var(--font);
+  font-size: 1.3rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: var(--accent);
+  text-shadow: 0 0 18px var(--accent), 0 0 40px rgba(0,240,255,0.25);
+  text-transform: uppercase;
+}
+
+/* ===== START SCREEN EXTRA BUTTONS ===== */
+
+.start-btn-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.start-btn-row .btn-secondary {
+  flex: 1;
+  padding: 11px 4px;
+  letter-spacing: 1.5px;
+  font-size: 0.58rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== SKIN SELECTOR ===== */
+
+.skin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+}
+
+.skin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  background: rgba(0,240,255,0.03);
+  border: 1px solid rgba(0,240,255,0.14);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, transform 0.12s;
+}
+
+.skin-card:hover {
+  background: rgba(0,240,255,0.09);
+  border-color: rgba(0,240,255,0.35);
+  transform: translateY(-2px);
+}
+
+.skin-card.selected {
+  background: rgba(0,240,255,0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(0,240,255,0.25), inset 0 0 12px rgba(0,240,255,0.05);
+}
+
+.skin-card canvas {
+  display: block;
+}
+
+.skin-name {
+  font-family: var(--font);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.skin-card.selected .skin-name {
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(0,240,255,0.5);
+}
+
+/* ===== LEADERBOARD ===== */
+
+.leaderboard-content {
+  max-width: 400px;
+  gap: 12px;
+}
+
+.lb-auth-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 3px;
+  min-height: 40px;
+}
+
+.lb-user-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.lb-user-photo {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(0,240,255,0.3);
+}
+
+.lb-user-name {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.lb-auth-btns {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-auth {
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 2px;
+  font-family: var(--font);
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  outline: none;
+  transition: background 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+
+.btn-auth:hover {
+  background: rgba(0,240,255,0.1);
+  border-color: rgba(0,240,255,0.4);
+  color: var(--accent);
+}
+
+.btn-auth-out {
+  color: var(--text-dim);
+}
+
+.lb-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.lb-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+
+.lb-entry.lb-you {
+  background: rgba(0,240,255,0.07);
+  border-color: rgba(0,240,255,0.22);
+}
+
+.lb-rank {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  min-width: 26px;
+}
+
+.lb-entry.lb-you .lb-rank { color: var(--accent); }
+
+.lb-photo {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.lb-photo-ph {
+  width: 22px;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.lb-name {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lb-score {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(0,240,255,0.3);
+  flex-shrink: 0;
+}
+
+.lb-turn {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.lb-loading, .lb-note {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 18px 0;
+  letter-spacing: 1px;
 }

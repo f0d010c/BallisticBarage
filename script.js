@@ -46,10 +46,10 @@ const CFG = {
   LAUNCH_DELAY:   40,       // ms between successive ball launches
 
   // Spawn
-  PICKUP_CHANCE_BASE: 0.10, // base chance of pickup per row cell
-  GAP_CHANCE_BASE:    0.30, // chance of empty cell
+  PICKUP_CHANCE_BASE: 0.04, // base chance of pickup per row cell (lower = fewer ball gains)
+  GAP_CHANCE_BASE:    0.20, // (legacy, kept for reference — pattern spawner ignores this)
   MIN_HEALTH:         1,
-  HEALTH_PER_TURN:    0.55, // avg health growth per turn
+  HEALTH_PER_TURN:    0.9,  // avg health growth per turn
 
   // Special blocks (enabled from these turns onward)
   ARMORED_MIN_TURN:    2,
@@ -97,6 +97,20 @@ const COLORS = {
   ARMORED_BORDER: '#ffcc00',
   EXPLOSIVE_GLOW: '#ff6600',
 };
+
+// ─────────────────────────────────────────────
+// BALL SKINS
+// ─────────────────────────────────────────────
+
+const SKINS = {
+  plasma: { name: 'PLASMA', color: '#00f0ff',              glow: 'rgba(0,240,255,0.28)',   glowEdge: 'rgba(0,240,255,0)',   shadow: '#00f0ff',  spec: 'rgba(255,255,255,0.88)' },
+  magma:  { name: 'MAGMA',  color: '#ff5500',              glow: 'rgba(255,85,0,0.28)',    glowEdge: 'rgba(255,85,0,0)',    shadow: '#ff5500',  spec: 'rgba(255,220,180,0.85)' },
+  void:   { name: 'VOID',   color: '#aa44ff',              glow: 'rgba(170,68,255,0.28)',  glowEdge: 'rgba(170,68,255,0)', shadow: '#aa44ff',  spec: 'rgba(220,200,255,0.85)' },
+  nova:   { name: 'NOVA',   color: '#ffcc00',              glow: 'rgba(255,204,0,0.28)',   glowEdge: 'rgba(255,204,0,0)',  shadow: '#ffcc00',  spec: 'rgba(255,255,220,0.88)' },
+  ghost:  { name: 'GHOST',  color: 'rgba(210,230,255,0.9)',glow: 'rgba(200,220,255,0.22)', glowEdge: 'rgba(200,220,255,0)',shadow: '#c8dcff',  spec: 'rgba(255,255,255,0.95)' },
+};
+
+function getSkin() { return SKINS[State.activeSkin] || SKINS.plasma; }
 
 // ─────────────────────────────────────────────
 // 2. AUDIO ENGINE  (Web Audio API synthesis)
@@ -159,6 +173,7 @@ const Audio = (() => {
     armorHit()    { tone(620, 'square',   0.07, 0.12, 0.003, 0.06); },
     explosion()   { noise(0.25, 0.28); tone(55, 'sawtooth', 0.28, 0.22, 0.005, 0.25); },
     combo(n)      { const f = 440 + Math.min(n - 2, 6) * 100; tone(f, 'sine', 0.15, 0.3, 0.005, 0.1); tone(f * 1.5, 'triangle', 0.08, 0.2, 0.01); },
+    screenClear() { tone(550, 'sine', 0.35, 0.35, 0.01, 0.25); tone(880, 'sine', 0.25, 0.28, 0.05, 0.2); tone(1320, 'sine', 0.15, 0.22, 0.1, 0.15); },
     get muted()   { return muted; },
     toggle()      {
       muted = !muted;
@@ -212,6 +227,10 @@ const State = {
   comboTimer:  0,
   comboPopups: [],
 
+  // Skins & clear banners
+  activeSkin:   localStorage.getItem('bb_skin') || 'plasma',
+  clearBanners: [],
+
   reset() {
     this.phase          = 'aiming';
     this.score          = 0;
@@ -228,6 +247,8 @@ const State = {
     this.combo          = 0;
     this.comboTimer     = 0;
     this.comboPopups    = [];
+    this.activeSkin     = localStorage.getItem('bb_skin') || 'plasma';
+    this.clearBanners   = [];
   },
 
   saveBest() {
@@ -555,50 +576,122 @@ function stepBall(ball, dt) {
 // 7. LEVEL GENERATION
 // ─────────────────────────────────────────────
 
-// Generate a new top row of blocks/pickups for the current turn
-function spawnRow() {
+// ── Spawn helpers ──
+
+function _shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Returns a 'B'/'E'/'P' layout array for one row based on turn progression.
+function _rowLayout(turn) {
+  const allCols = Array.from({ length: CFG.COLS }, (_, i) => i);
+  const r = Math.random();
+  let blockCols;
+
+  if (turn <= 4) {
+    // Sparse: 3–4 blocks spread across the row
+    const count = Math.random() < 0.4 ? 4 : 3;
+    blockCols = new Set(_shuffle(allCols).slice(0, count));
+
+  } else if (turn <= 9) {
+    // Alternating checkerboard OR gap-wall with 2 gaps
+    if (r < 0.45) {
+      const offset = Math.random() < 0.5 ? 0 : 1;
+      blockCols = new Set(allCols.filter(c => c % 2 === offset));
+    } else {
+      const gaps = new Set(_shuffle(allCols).slice(0, 2));
+      blockCols = new Set(allCols.filter(c => !gaps.has(c)));
+    }
+
+  } else if (turn <= 18) {
+    // Corridor (2 adjacent gaps) OR single-gap wall
+    if (r < 0.5) {
+      const gapStart = Math.floor(Math.random() * (CFG.COLS - 1));
+      blockCols = new Set(allCols.filter(c => c !== gapStart && c !== gapStart + 1));
+    } else {
+      const gap = Math.floor(Math.random() * CFG.COLS);
+      blockCols = new Set(allCols.filter(c => c !== gap));
+    }
+
+  } else {
+    // Late game: almost solid — 1 gap, occasionally 2 spread gaps
+    if (r < 0.65) {
+      const gap = Math.floor(Math.random() * CFG.COLS);
+      blockCols = new Set(allCols.filter(c => c !== gap));
+    } else {
+      const gaps = new Set(_shuffle(allCols).slice(0, 2));
+      blockCols = new Set(allCols.filter(c => !gaps.has(c)));
+    }
+  }
+
+  const layout = new Array(CFG.COLS).fill('E');
+  blockCols.forEach(c => { layout[c] = 'B'; });
+
+  // Sprinkle pickups in some empty cells
+  const pickupChance = Math.min(0.22, CFG.PICKUP_CHANCE_BASE + turn * 0.003);
+  for (let i = 0; i < CFG.COLS; i++) {
+    if (layout[i] === 'E' && Math.random() < pickupChance) layout[i] = 'P';
+  }
+  return layout;
+}
+
+// Dense burst layout (after screen clear): solid row with exactly 1 gap
+function _burstLayout() {
+  const layout = new Array(CFG.COLS).fill('B');
+  layout[Math.floor(Math.random() * CFG.COLS)] = 'E';
+  return layout;
+}
+
+// Generate a new row of blocks/pickups.
+// targetRow: which grid row to place at (0 = top). dense: solid burst for screen-clear penalty.
+function spawnRow(targetRow = 0, dense = false) {
   const turn = State.turn;
   const baseHp = Math.max(1, Math.round(turn * CFG.HEALTH_PER_TURN));
   const spread = Math.max(1, Math.round(baseHp * 0.4));
+  const slideStart = -Layout.cellSize * (targetRow + 1);
+  const occupied = new Set(State.blocks.filter(b => b.row === targetRow).map(b => b.col));
 
-  const gapChance    = Math.max(0.10, CFG.GAP_CHANCE_BASE - turn * 0.005);
-  const pickupChance = Math.min(0.25, CFG.PICKUP_CHANCE_BASE + turn * 0.003);
-  const slideStart   = -Layout.cellSize; // animate in from one row above
+  const layout = dense ? _burstLayout() : _rowLayout(turn);
+
+  let stoneCount = 0;
+  const placedExplosive = new Set();
 
   for (let col = 0; col < CFG.COLS; col++) {
-    const r = Math.random();
-    if (r < gapChance) continue; // empty cell
-    if (r < gapChance + pickupChance) {
-      if (!State.blocks.find(b => b.col === col && b.row === 0)) {
-        State.pickups.push({ col, row: 0, collected: false, slideOffset: slideStart });
-      }
+    if (occupied.has(col)) continue;
+    const cell = layout[col];
+
+    if (cell === 'P') {
+      State.pickups.push({ col, row: targetRow, collected: false, slideOffset: slideStart });
       continue;
     }
+    if (cell !== 'B') continue;
 
-    // Determine block type
+    // Type: enforce max 2 stone per row, no adjacent explosives
     let type = 'normal';
     const tr = Math.random();
-    const sc = CFG.STONE_CHANCE;
-    const ec = CFG.EXPLOSIVE_CHANCE;
-    const ac = CFG.ARMORED_CHANCE;
-    if      (turn >= CFG.STONE_MIN_TURN    && tr < sc)            type = 'stone';
-    else if (turn >= CFG.EXPLOSIVE_MIN_TURN && tr < sc + ec)      type = 'explosive';
-    else if (turn >= CFG.ARMORED_MIN_TURN   && tr < sc + ec + ac) type = 'armored';
+    const sc = CFG.STONE_CHANCE, ec = CFG.EXPLOSIVE_CHANCE, ac = CFG.ARMORED_CHANCE;
+    const noAdjExp = !placedExplosive.has(col - 1) && !placedExplosive.has(col + 1);
 
-    // HP
+    if      (turn >= CFG.STONE_MIN_TURN     && stoneCount < 2 && tr < sc)        type = 'stone';
+    else if (turn >= CFG.EXPLOSIVE_MIN_TURN && noAdjExp        && tr < sc + ec)  type = 'explosive';
+    else if (turn >= CFG.ARMORED_MIN_TURN                      && tr < sc+ec+ac) type = 'armored';
+
+    if (type === 'stone')     stoneCount++;
+    if (type === 'explosive') placedExplosive.add(col);
+
     let hp = baseHp + Math.floor(Math.random() * spread * 2) - spread + 1;
     hp = Math.max(1, hp);
-    if (type === 'stone')   hp = Math.ceil(hp * 5); // very tough but breakable
+    if (type === 'stone')   hp = Math.ceil(hp * 5);
     if (type === 'armored') hp = Math.ceil(hp * 1.5);
-    const maxHp = hp;
 
     State.blocks.push({
-      col, row: 0,
-      hp, maxHp,
-      type,
-      flashTimer:  0,
-      armorHits:   0,   // hits absorbed so far on current HP point (armored)
-      slideOffset: slideStart,
+      col, row: targetRow, hp, maxHp: hp, type,
+      flashTimer: 0, armorHits: 0, slideOffset: slideStart,
     });
   }
 }
@@ -747,6 +840,13 @@ function update(dt) {
     p.life -= dt;
     if (p.life <= 0) State.comboPopups.splice(i, 1);
   }
+
+  // Clear banners
+  for (let i = State.clearBanners.length - 1; i >= 0; i--) {
+    const b = State.clearBanners[i];
+    b.life -= dt;
+    if (b.life <= 0) State.clearBanners.splice(i, 1);
+  }
 }
 
 // Fire balls one-by-one with a delay
@@ -822,18 +922,23 @@ function updateRolling(dt) {
     }
   }
 
-  // Explosion chain reactions
+  // Explosion chain reactions — damage scales with the exploder's maxHp
   while (explosionQueue.length > 0) {
     const src = explosionQueue.shift();
+    // Exponential damage: each tier of explosive hits harder
+    const blastDmg = Math.max(1, Math.ceil(src.maxHp * 0.6));
     for (const nb of getAdjacentBlocks(src.col, src.row)) {
       if (nb.type === 'stone') continue;
       nb.flashTimer = 0.18;
       if (nb.type === 'armored') {
-        nb.armorHits = (nb.armorHits || 0) + 1;
-        if (nb.armorHits < 2) continue;
-        nb.armorHits = 0;
+        // Each blast point counts as one armor hit
+        nb.armorHits = (nb.armorHits || 0) + blastDmg;
+        const hpDrain = Math.floor(nb.armorHits / 2);
+        nb.armorHits = nb.armorHits % 2;
+        nb.hp = Math.max(0, nb.hp - hpDrain);
+      } else {
+        nb.hp = Math.max(0, nb.hp - blastDmg);
       }
-      nb.hp--;
       if (nb.hp <= 0) {
         State.combo = Math.min(State.combo + 1, 10);
         State.comboTimer = CFG.COMBO_WINDOW;
@@ -890,8 +995,9 @@ function endTurn() {
   }
   State.launchY = Layout.launchZoneY;
 
-  // Remove dead blocks
+  // Remove dead blocks — check for screen clear before shift
   State.blocks = State.blocks.filter(b => b.hp > 0);
+  const screenCleared = State.blocks.length === 0;
 
   // Shift blocks down
   const gameOver = shiftDown();
@@ -901,13 +1007,43 @@ function endTurn() {
     return;
   }
 
-  // Spawn new row
   State.turn++;
-  spawnRow();
 
-  // Update UI
+  if (screenCleared) {
+    // Bonus points scale with turn — big reward for clearing late boards
+    const bonus = State.turn * 100;
+    State.score += bonus;
+    updateHUD();
+
+    // Particle cascade across the grid
+    const cols = CFG.COLS, rows = CFG.ROWS;
+    for (let col = 0; col < cols; col++) {
+      for (let row = 0; row < rows; row += 2) {
+        const { x, y } = blockToPixel(col, row);
+        Particles.burst(x, y, 5, ['#ffcc00', '#00f0ff', '#ff1a5e', '#39ff14']);
+      }
+    }
+
+    // Trigger clear animation banner
+    State.clearBanners.push({
+      text:    'SCREEN CLEAR!',
+      subtext: `+${bonus} PTS`,
+      x: Layout.W / 2,
+      y: Layout.H * 0.42,
+      life:    2.4,
+      maxLife: 2.4,
+    });
+    Audio.screenClear();
+
+    // Spawn 3 dense rows as the penalty wave (2-3× default)
+    spawnRow(0, true);
+    spawnRow(1, true);
+    spawnRow(2, false);
+  } else {
+    spawnRow(0, false);
+  }
+
   updateHUD();
-
   State.phase = 'aiming';
   State.balls = [];
 }
@@ -916,6 +1052,7 @@ function triggerGameOver() {
   Audio.gameOver();
   State.phase = 'gameover';
 
+  submitScore(); // async, fire-and-forget
   const isNewBest = State.saveBest();
 
   document.getElementById('go-score').textContent = State.score;
@@ -964,6 +1101,7 @@ function render() {
   drawAim(c);
   drawDangerLine(c);
   drawComboPopups(c);
+  drawClearBanners(c);
 
   if (shaking) c.restore();
 
@@ -1197,8 +1335,9 @@ function drawLaunchZone(c) {
   c.setLineDash([]);
 
   // Ball indicator at launch position
-  c.fillStyle = COLORS.BALL;
-  c.shadowColor = COLORS.BALL;
+  const _skin = getSkin();
+  c.fillStyle = _skin.color;
+  c.shadowColor = _skin.shadow;
   c.shadowBlur  = 14;
   c.beginPath();
   c.arc(State.launchX, State.launchY, CFG.BALL_RADIUS, 0, Math.PI * 2);
@@ -1207,6 +1346,7 @@ function drawLaunchZone(c) {
 }
 
 function drawBalls(c) {
+  const skin = getSkin();
   for (const ball of State.balls) {
     if (!ball.alive) continue;
 
@@ -1215,7 +1355,7 @@ function drawBalls(c) {
       const t = ball.trail[i];
       const frac = i / ball.trail.length;
       c.globalAlpha = frac * 0.32;
-      c.fillStyle = COLORS.BALL;
+      c.fillStyle = skin.color;
       c.beginPath();
       c.arc(t.x, t.y, Math.max(1, CFG.BALL_RADIUS * frac * 0.72), 0, Math.PI * 2);
       c.fill();
@@ -1224,26 +1364,26 @@ function drawBalls(c) {
 
     const r = CFG.BALL_RADIUS;
 
-    // Outer diffuse glow (radial gradient, no shadow API needed)
+    // Outer diffuse glow
     const glowGrad = c.createRadialGradient(ball.x, ball.y, r * 0.5, ball.x, ball.y, r * 3.2);
-    glowGrad.addColorStop(0, 'rgba(0,240,255,0.28)');
-    glowGrad.addColorStop(1, 'rgba(0,240,255,0)');
+    glowGrad.addColorStop(0, skin.glow);
+    glowGrad.addColorStop(1, skin.glowEdge);
     c.fillStyle = glowGrad;
     c.beginPath();
     c.arc(ball.x, ball.y, r * 3.2, 0, Math.PI * 2);
     c.fill();
 
     // Ball body
-    c.shadowColor = COLORS.BALL;
+    c.shadowColor = skin.shadow;
     c.shadowBlur  = 20;
-    c.fillStyle   = COLORS.BALL;
+    c.fillStyle   = skin.color;
     c.beginPath();
     c.arc(ball.x, ball.y, r, 0, Math.PI * 2);
     c.fill();
     c.shadowBlur = 0;
 
-    // Inner white specular highlight
-    c.fillStyle = 'rgba(255,255,255,0.88)';
+    // Inner specular highlight
+    c.fillStyle = skin.spec;
     c.beginPath();
     c.arc(ball.x - r * 0.24, ball.y - r * 0.24, r * 0.38, 0, Math.PI * 2);
     c.fill();
@@ -1499,12 +1639,279 @@ function updateStartScreen() {
   }
 }
 
+// ─────────────────────────────────────────────
+// 13. CLEAR BANNER RENDERER
+// ─────────────────────────────────────────────
+
+function drawClearBanners(c) {
+  for (const b of State.clearBanners) {
+    const t = 1 - b.life / b.maxLife;
+    const alpha = t < 0.12 ? t / 0.12 : t > 0.65 ? Math.max(0, 1 - (t - 0.65) / 0.35) : 1;
+    const scale = 0.72 + t * 0.28;
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(b.x, b.y);
+    c.scale(scale, scale);
+    const fs1 = Math.round(Layout.W * 0.082);
+    c.font = `900 ${fs1}px 'Orbitron', sans-serif`;
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.shadowColor = '#ffcc00'; c.shadowBlur = 30; c.fillStyle = '#ffcc00';
+    c.fillText(b.text, 0, -fs1 * 0.6);
+    const fs2 = Math.round(Layout.W * 0.052);
+    c.font = `700 ${fs2}px 'Orbitron', sans-serif`;
+    c.shadowColor = '#00f0ff'; c.shadowBlur = 20; c.fillStyle = '#00f0ff';
+    c.fillText(b.subtext, 0, fs1 * 0.55);
+    c.shadowBlur = 0;
+    c.restore();
+  }
+  c.globalAlpha = 1;
+}
+
+// ─────────────────────────────────────────────
+// 14. SKINS UI
+// ─────────────────────────────────────────────
+
+function initSkinSelector() {
+  const grid = document.getElementById('skin-grid');
+  if (!grid) return;
+  while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+  Object.entries(SKINS).forEach(([key, skin]) => {
+    const btn = document.createElement('button');
+    btn.className = 'skin-card' + (State.activeSkin === key ? ' selected' : '');
+    btn.dataset.skin = key;
+
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 56;
+    const cc = cv.getContext('2d');
+    const cx = 28, cy = 28, r = 18;
+    const grad = cc.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2.5);
+    grad.addColorStop(0, skin.glow); grad.addColorStop(1, skin.glowEdge);
+    cc.fillStyle = grad;
+    cc.beginPath(); cc.arc(cx, cy, r * 2.5, 0, Math.PI * 2); cc.fill();
+    cc.shadowColor = skin.shadow; cc.shadowBlur = 14;
+    cc.fillStyle = skin.color;
+    cc.beginPath(); cc.arc(cx, cy, r, 0, Math.PI * 2); cc.fill();
+    cc.shadowBlur = 0;
+    cc.fillStyle = skin.spec;
+    cc.beginPath(); cc.arc(cx - r * 0.24, cy - r * 0.24, r * 0.38, 0, Math.PI * 2); cc.fill();
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'skin-name';
+    nameEl.textContent = skin.name;
+
+    btn.appendChild(cv);
+    btn.appendChild(nameEl);
+    btn.addEventListener('click', () => selectSkin(key));
+    grid.appendChild(btn);
+  });
+}
+
+function selectSkin(key) {
+  State.activeSkin = key;
+  localStorage.setItem('bb_skin', key);
+  document.querySelectorAll('.skin-card').forEach(el => {
+    el.classList.toggle('selected', el.dataset.skin === key);
+  });
+}
+
+// ─────────────────────────────────────────────
+// 15. FIREBASE / LEADERBOARD
+// ─────────────────────────────────────────────
+//
+// To enable leaderboards + Google sign-in:
+//  1. Create a Firebase project at https://console.firebase.google.com
+//  2. Enable Google as a sign-in provider (Authentication → Sign-in method)
+//  3. Create a Firestore database in production mode
+//  4. Add Firestore composite index: collection "leaderboard", field "score" (Descending)
+//  5. Fill in FIREBASE_CONFIG below with your project values (found in Project Settings → Your apps)
+
+const FIREBASE_CONFIG = {
+  apiKey:            '',  // ← paste your values here
+  authDomain:        '',
+  projectId:         '',
+  storageBucket:     '',
+  messagingSenderId: '',
+  appId:             '',
+};
+
+const FB = (() => {
+  if (typeof firebase === 'undefined' || !FIREBASE_CONFIG.apiKey) return null;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    return { auth: firebase.auth(), db: firebase.firestore() };
+  } catch (e) { console.warn('Firebase init failed:', e); return null; }
+})();
+
+let currentUser = null;
+
+function signIn()  { if (FB) FB.auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(console.error); }
+function signOut() { if (FB) FB.auth.signOut(); }
+
+if (FB) {
+  FB.auth.onAuthStateChanged(user => { currentUser = user; _syncAuthUI(); });
+}
+
+function _syncAuthUI() {
+  const signinBtn  = document.getElementById('btn-signin');
+  const signoutBtn = document.getElementById('btn-signout');
+  const nameEl     = document.getElementById('lb-user-name');
+  const photoEl    = document.getElementById('lb-user-photo');
+  const authRow    = document.getElementById('lb-auth-row');
+
+  if (!FB && authRow) {
+    authRow.style.display = 'none';
+    return;
+  }
+
+  if (currentUser) {
+    if (signinBtn)  signinBtn.style.display  = 'none';
+    if (signoutBtn) signoutBtn.style.display = '';
+    if (nameEl)  nameEl.textContent = currentUser.displayName || currentUser.email || '';
+    if (photoEl) {
+      photoEl.src = currentUser.photoURL || '';
+      photoEl.style.display = currentUser.photoURL ? '' : 'none';
+    }
+  } else {
+    if (signinBtn)  signinBtn.style.display  = '';
+    if (signoutBtn) signoutBtn.style.display = 'none';
+    if (nameEl)  nameEl.textContent = '';
+    if (photoEl) photoEl.style.display = 'none';
+  }
+}
+
+async function submitScore() {
+  if (!FB || !currentUser) return;
+  const score = State.score, turn = State.turn;
+  try {
+    const existing = await FB.db.collection('leaderboard')
+      .where('uid', '==', currentUser.uid).orderBy('score', 'desc').limit(1).get();
+    if (!existing.empty && existing.docs[0].data().score >= score) return;
+    existing.docs.forEach(d => d.ref.delete());
+    await FB.db.collection('leaderboard').add({
+      uid:  currentUser.uid,
+      name: currentUser.displayName || 'Anonymous',
+      photo: currentUser.photoURL || '',
+      score, turn,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) { console.error('submitScore:', e); }
+}
+
+function _makeLbNote(msg) {
+  const el = document.createElement('div');
+  el.className = 'lb-note';
+  el.textContent = msg;
+  return el;
+}
+
+async function fetchLeaderboard() {
+  const listEl = document.getElementById('lb-list');
+  if (!listEl) return;
+  while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+
+  if (!FB) { listEl.appendChild(_makeLbNote('Add your Firebase config to enable leaderboards.')); return; }
+
+  const loading = document.createElement('div');
+  loading.className = 'lb-loading';
+  loading.textContent = 'Loading...';
+  listEl.appendChild(loading);
+
+  try {
+    const snap = await FB.db.collection('leaderboard').orderBy('score', 'desc').limit(50).get();
+    const seen = new Set(); const entries = [];
+    for (const doc of snap.docs) {
+      const d = doc.data();
+      if (!seen.has(d.uid)) { seen.add(d.uid); entries.push(d); if (entries.length >= 10) break; }
+    }
+    while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+
+    if (!entries.length) { listEl.appendChild(_makeLbNote('No scores yet — be the first!')); return; }
+
+    entries.forEach((e, i) => {
+      const row = document.createElement('div');
+      row.className = 'lb-entry' + (currentUser && e.uid === currentUser.uid ? ' lb-you' : '');
+
+      const rank = document.createElement('span');
+      rank.className = 'lb-rank';
+      rank.textContent = `#${i + 1}`;
+      row.appendChild(rank);
+
+      if (e.photo) {
+        const img = document.createElement('img');
+        img.className = 'lb-photo';
+        img.width = img.height = 22;
+        img.alt = '';
+        img.src = e.photo;
+        img.addEventListener('error', () => { img.style.display = 'none'; });
+        row.appendChild(img);
+      } else {
+        const ph = document.createElement('span');
+        ph.className = 'lb-photo-ph';
+        ph.textContent = '◎';
+        row.appendChild(ph);
+      }
+
+      const name = document.createElement('span');
+      name.className = 'lb-name';
+      name.textContent = e.name || 'Anonymous';
+      row.appendChild(name);
+
+      const scoreEl = document.createElement('span');
+      scoreEl.className = 'lb-score';
+      scoreEl.textContent = e.score;
+      row.appendChild(scoreEl);
+
+      const turnEl = document.createElement('span');
+      turnEl.className = 'lb-turn';
+      turnEl.textContent = `T${e.turn}`;
+      row.appendChild(turnEl);
+
+      listEl.appendChild(row);
+    });
+  } catch (err) {
+    while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+    listEl.appendChild(_makeLbNote('Failed to load scores.'));
+    console.error(err);
+  }
+}
+
+function openLeaderboard() {
+  showOverlay('leaderboard-screen');
+  _syncAuthUI();
+  fetchLeaderboard();
+}
+
+// Skin / Leaderboard button wiring
+document.getElementById('btn-skins').addEventListener('click', () => {
+  initSkinSelector();
+  showOverlay('skin-screen');
+});
+document.getElementById('btn-skin-close').addEventListener('click', () => showOverlay('start-screen'));
+
+document.getElementById('btn-skins-pause').addEventListener('click', () => {
+  initSkinSelector();
+  showOverlay('skin-screen');
+});
+
+document.getElementById('btn-leaderboard-start').addEventListener('click', openLeaderboard);
+document.getElementById('btn-leaderboard-go').addEventListener('click', openLeaderboard);
+document.getElementById('btn-lb-close').addEventListener('click', () => {
+  if (State.phase === 'gameover') showOverlay('gameover-screen');
+  else if (State.phase === 'paused') showOverlay('pause-screen');
+  else showOverlay('start-screen');
+});
+
+document.getElementById('btn-signin').addEventListener('click', signIn);
+document.getElementById('btn-signout').addEventListener('click', signOut);
+
 // ── Bootstrap ──
 (function bootstrap() {
   resizeCanvas();
   Input.init();
   updateStartScreen();
   updateHUD();
+  _syncAuthUI();
 
   // Apply stored mute pref
   if (Audio.muted) {
