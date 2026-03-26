@@ -1009,6 +1009,10 @@ function endTurn() {
 
   State.turn++;
 
+  // Guaranteed ball floor: +1 every 3 turns so the player always scales up.
+  // Pickups stack on top — this just prevents starvation.
+  State.ballCount = Math.max(State.ballCount, Math.floor((State.turn - 1) / 3) + 1);
+
   if (screenCleared) {
     // Bonus points scale with turn — big reward for clearing late boards
     const bonus = State.turn * 100;
