@@ -593,33 +593,34 @@ function _rowLayout(turn) {
   const r = Math.random();
   let blockCols;
 
-  if (turn <= 4) {
-    // Sparse: 3–4 blocks spread across the row
-    const count = Math.random() < 0.4 ? 4 : 3;
+  if (turn <= 8) {
+    // Sparse: 2–3 blocks, lots of room
+    const count = Math.random() < 0.35 ? 3 : 2;
     blockCols = new Set(_shuffle(allCols).slice(0, count));
 
-  } else if (turn <= 9) {
-    // Alternating checkerboard OR gap-wall with 2 gaps
+  } else if (turn <= 16) {
+    // Alternating OR gap-wall with 2–3 gaps (4–5 blocks)
     if (r < 0.45) {
       const offset = Math.random() < 0.5 ? 0 : 1;
       blockCols = new Set(allCols.filter(c => c % 2 === offset));
+    } else {
+      const gapCount = Math.random() < 0.5 ? 3 : 2;
+      const gaps = new Set(_shuffle(allCols).slice(0, gapCount));
+      blockCols = new Set(allCols.filter(c => !gaps.has(c)));
+    }
+
+  } else if (turn <= 28) {
+    // Corridor (2 adjacent gaps) OR gap-wall with 1–2 gaps
+    if (r < 0.5) {
+      const gapStart = Math.floor(Math.random() * (CFG.COLS - 1));
+      blockCols = new Set(allCols.filter(c => c !== gapStart && c !== gapStart + 1));
     } else {
       const gaps = new Set(_shuffle(allCols).slice(0, 2));
       blockCols = new Set(allCols.filter(c => !gaps.has(c)));
     }
 
-  } else if (turn <= 18) {
-    // Corridor (2 adjacent gaps) OR single-gap wall
-    if (r < 0.5) {
-      const gapStart = Math.floor(Math.random() * (CFG.COLS - 1));
-      blockCols = new Set(allCols.filter(c => c !== gapStart && c !== gapStart + 1));
-    } else {
-      const gap = Math.floor(Math.random() * CFG.COLS);
-      blockCols = new Set(allCols.filter(c => c !== gap));
-    }
-
   } else {
-    // Late game: almost solid — 1 gap, occasionally 2 spread gaps
+    // Late game: almost solid — 1 gap, occasionally 2
     if (r < 0.65) {
       const gap = Math.floor(Math.random() * CFG.COLS);
       blockCols = new Set(allCols.filter(c => c !== gap));
@@ -1009,9 +1010,8 @@ function endTurn() {
 
   State.turn++;
 
-  // Guaranteed ball floor: +1 every 3 turns so the player always scales up.
-  // Pickups stack on top — this just prevents starvation.
-  State.ballCount = Math.max(State.ballCount, Math.floor((State.turn - 1) / 3) + 1);
+  // Ball floor scales 1:1 with turn — pickups stack on top.
+  State.ballCount = Math.max(State.ballCount, State.turn);
 
   if (screenCleared) {
     // Bonus points scale with turn — big reward for clearing late boards
